@@ -50,3 +50,38 @@ def base62_decode(code):
     for char in code:
         num = num * 62 + ALPHABET.index(char)
     return num
+
+
+@app.route("/shorten", methods=["POST"])
+def shorten_url():
+    """Grab the long url from the db"""
+    data = request.get_json()
+    if not data or "url" not in data:
+        return jsonify({"error": "Missing 'url' in request body"}), 400
+
+    long_url = data["url"]
+
+    # Save to PostgreSQL
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO urls (long_url) VALUES (%s) RETURNING id", (long_url,))
+    url_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    # Encode the id to base62
+    short_code = base62_encode(url_id + OFFSET)
+
+    # Cache the mapping in Redis
+    cache.set(short_code, long_url)
+
+    return (
+        jsonify(
+            {
+                "short_url": f"http://localhost:5000/{short_code}",
+                "short_code": short_code,
+            }
+        ),
+        201,
+    )
