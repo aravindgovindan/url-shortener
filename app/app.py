@@ -85,3 +85,33 @@ def shorten_url():
         ),
         201,
     )
+
+
+@app.route("/<short_code>", methods=["GET"])
+def redirect_url(short_code):
+    """Redirect to actual url based on the short code"""
+    # Check redis cache first
+    long_url = cache.get(short_code)
+
+    if long_url:
+        print("Cache hit", flush=True)
+        return redirect(long_url, code=302)
+
+    # Cache miss - fall back to PostgreSQL
+    print("Cache miss", flush=True)
+    conn = get_db()
+    cur = conn.cursor()
+    url_id = base62_decode(short_code) - OFFSET
+    cur.execute("SELECT long_url FROM urls WHERE id = %s", (url_id,))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not result:
+        return jsonify({"error": "Short URL not found"}), 404
+
+    # Found the long URL, cache it in Redis for future requests
+    long_url = result[0]
+    cache.set(short_code, long_url)
+
+    return redirect(long_url, code=302)
